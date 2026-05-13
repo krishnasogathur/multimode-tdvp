@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.npz
+*.joblib
+*.ipynb_checkpoints
+*.egg-info/
+.venv/
+sims-venv/
+*.log
