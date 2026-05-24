@@ -2,11 +2,11 @@ import numpy as np
 import time, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from joblib import Parallel, delayed
-from numpyclassesmultimode import (
+from tdvp.solver import (
     GaussianComponent, HierarchicalState, Nu,
     TDVPSolver, apply_jump_displacement, apply_jump_spin_decay, pack_state, rk4_step,
 )
-from helper import single_mode_gaussians_expec
+from tdvp.gaussians import single_mode_gaussians_expec
 
 # ---------------------------------------------------------------------------
 # Parameters
@@ -20,14 +20,14 @@ eta_x   = 0.2
 eta_y   = 0.2
 eta_x_se = 0.2
 eta_y_se = 0.2
-T       = 20.0
+T       = 200.0
 dt      = 0.001
-NGAUSS  = 3
-N_TRAJ  = 500
-R_MAX   = 0.03
-SEED    = 100
-alpha0_x = np.sqrt(7.0)
-alpha0_y = np.sqrt(6.0)
+NGAUSS  = 5
+N_TRAJ  = 1000
+R_MAX   = 0.05
+SEED    = 120
+alpha0_x = np.sqrt(4.0)
+alpha0_y = np.sqrt(3.0)
 
 OUT_DIR = "cooling-2d-trial1"
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -41,8 +41,8 @@ H_terms = [
     (nu_x,    "g", "g", {0: (1, 1)}),
     (nu_y,    "g", "g", {1: (1, 1)}),
     (Delta,   "e", "e", {}),
-    (Omega/2, "e", "g", {}, +eta_x),   # displacement on mode 0 only for now
-    (Omega/2, "g", "e", {}, -eta_x),
+    (Omega/2, "e", "g", {}, {0: +eta_x, 1: +eta_y}),
+    (Omega/2, "g", "e", {}, {0: -eta_x, 1: -eta_y}),
 ]
 K_terms = [(Gamma/2, "e", "e", {})]
 
@@ -134,8 +134,8 @@ def make_sector_gaussians(ax, ay, suppress, rng):
 def make_psi(seed):
     rng = np.random.default_rng(seed)
     psi = HierarchicalState()
-    psi.add_gaussian("e", make_sector_gaussians(alpha0_x, alpha0_y, 0.0, rng))
-    psi.add_gaussian("g", make_sector_gaussians(alpha0_x, alpha0_y, 3.0, rng))
+    psi.add_gaussian("g", make_sector_gaussians(alpha0_x, alpha0_y, 0.0, rng))
+    psi.add_gaussian("e", make_sector_gaussians(alpha0_x, alpha0_y, 3.0, rng))
     nm_tot = compute_norm(psi)
     for gs in psi.state.values():
         for g in gs: g.kappa -= 0.5 * np.log(nm_tot)
@@ -173,6 +173,8 @@ def run_trajectory(traj_idx):
     ny     = np.zeros(N_steps + 1)
     norm   = np.zeros(N_steps + 1)
     jump_times = []
+    KAHLER_EVERY = 2000
+    kahler_errors = []; kahler_steps = []
 
     nm = compute_norm(psi)
     pe[0]  = compute_pe(psi) / nm
@@ -215,7 +217,19 @@ def run_trajectory(traj_idx):
             pe[step]   = compute_pe(psi) / nm
             nx[step]   = compute_n(psi, 0) / nm
             ny[step]   = compute_n(psi, 1) / nm
-            if step % 100 == 0:
+            if step % KAHLER_EVERY == 0:
+                solver.eval(z)
+                lam, U = np.linalg.eigh(solver.g_mat)
+                mask = lam > 1e-8 * lam.max()
+                U_r  = U[:, mask]
+                # pseudoinverse restricted to image only
+                g_pi_r = U_r @ np.diag(1.0/lam[mask]) @ U_r.T
+                J    = U_r.T @ g_pi_r @ solver.Omega_mat @ U_r
+                kerr = float(np.linalg.norm(J @ J + np.eye(mask.sum())))
+                kahler_errors.append(kerr); kahler_steps.append(step)
+                print(f"traj {traj_idx:04d}  step {step:05d}  kahler_err={kerr:.4f}", flush=True)
+                # print(f"traj {traj_idx:04d}  step {step:05d}  kahler_err={kerr:.4f}", flush=True)
+            if step % 200 == 0:
                 print(f"traj {traj_idx:04d}  step {step:05d}  pe={pe[step]:.3f}  nx={nx[step]:.3f}  ny={ny[step]:.3f}  jumps={len(jump_times)}", flush=True)
 
     np.savez(os.path.join(OUT_DIR, f"traj_{traj_idx:04d}.npz"),
@@ -225,7 +239,8 @@ def run_trajectory(traj_idx):
              nu_x=np.array(nu_x), nu_y=np.array(nu_y),
              eta_x=np.array(eta_x), eta_y=np.array(eta_y),
              T=np.array(T), dt=np.array(dt), NGAUSS=np.array(NGAUSS),
-             traj_idx=np.array(traj_idx))
+             traj_idx=np.array(traj_idx),
+             kahler_errors=np.array(kahler_errors), kahler_steps=np.array(kahler_steps))
     return len(jump_times)
 
 # ---------------------------------------------------------------------------
@@ -244,7 +259,7 @@ print(f"Done in {elapsed:.1f}s  avg_jumps={n_jumps_all.mean():.1f}")
 # QuTiP 2D mcsolve
 # ---------------------------------------------------------------------------
 import qutip as qt
-N_fock = 60
+N_fock = 30
 a    = qt.destroy(N_fock); b = qt.destroy(N_fock)
 Id2  = qt.qeye(2); IdN = qt.qeye(N_fock)
 sp   = qt.sigmap(); sm = qt.sigmam()
@@ -257,7 +272,7 @@ Dy_pos = qt.displace(N_fock, 1j*eta_y); Dy_neg = Dy_pos.dag()
 Dx_se_pos = qt.displace(N_fock, 1j*eta_x_se); Dx_se_neg = Dx_se_pos.dag()
 Dy_se_pos = qt.displace(N_fock, 1j*eta_y_se); Dy_se_neg = Dy_se_pos.dag()
 H_qt = (nu_x * Ax(a.dag()*a) + nu_y * Ay(b.dag()*b) + Delta * see
-      + Omega/2 * (S(sp)*Ax(Dx_pos) + S(sm)*Ax(Dx_neg)))
+      + Omega/2 * (S(sp)*Ax(Dx_pos)*Ay(Dy_pos) + S(sm)*Ax(Dx_neg)*Ay(Dy_neg)))
 c_ops = [
     np.sqrt(Gamma/4) * S(sm) * Ax(Dx_se_pos) * Ay(Dy_se_pos),
     np.sqrt(Gamma/4) * S(sm) * Ax(Dx_se_neg) * Ay(Dy_se_pos),
@@ -268,9 +283,9 @@ psi0_qt = qt.tensor(qt.basis(2, 0), qt.coherent(N_fock, alpha0_x), qt.coherent(N
 e_ops   = [see, Ax(a.dag()*a), Ay(b.dag()*b)]
 result  = qt.mcsolve(H_qt, psi0_qt, t_arr, c_ops, e_ops=e_ops, ntraj=500,
                      options={"nsteps": 100000})
-pe_qt = result.expect[0]
-nx_qt = result.expect[1]
-ny_qt = result.expect[2]
+pe_qt = np.array([result.expect[i][0] for i in range(500)]).mean(axis=0)
+nx_qt = np.array([result.expect[i][1] for i in range(500)]).mean(axis=0)
+ny_qt = np.array([result.expect[i][2] for i in range(500)]).mean(axis=0)
 print("QuTiP done.")
 
 np.savez(os.path.join(OUT_DIR, "meta.npz"),

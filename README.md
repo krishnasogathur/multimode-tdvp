@@ -22,20 +22,26 @@ tdvp/
   gaussians.py    — analytic Gaussian expectation values <α,β|a^m (a†)^n|α',β'>
 
 examples/
-  kerr/           — anharmonic oscillator benchmark vs QuTiP
-  cooling_1d/     — 1D sideband laser cooling (TDVP vs exact MCWF)
-  cooling_2d/     — 2D sideband cooling, multimode (TDVP vs QuTiP) [in progress]
-  lattice_heating/ — atom in a 1D optical lattice [planned]
+  benchmarks/
+    tdvp_benchmarks.ipynb   — HO, Kerr, cross-Kerr, non-Hermitian norm decay
+  cooling_2d/
+    2dcoolingtest.py        — 2D sideband cooling trajectories (TDVP)
+    helper.py               — Gaussian expectation helpers (legacy)
+    analysis/
+      traj_diagnostics.py   — filter bad trajectories (norm blowup)
+      cooling_2d_eval.py    — load trajectories, run QuTiP, produce comparison plots
 
 results/
-  kerr/           — benchmark plots comparing TDVP to QuTiP
+  benchmarks/     — HO, Kerr, cross-Kerr benchmark plots vs QuTiP/exact
+  cooling_2d/     — 2D cooling: phonon number and population vs time
 ```
 
 ## Key features
 
 - **Multi-sector spin states** — Hamiltonian terms couple arbitrary spin sectors `(σ_bra, σ_ket)` with bosonic operators; the overlap matrix remains block-diagonal by orthogonality of spin sectors
 - **Lamb-Dicke coupling** — laser-atom interaction terms include displacement $D(i\eta)$ applied analytically per jump
-- **Analytic jump operators** — spin decay ($\sigma_-$), cavity loss ($a$), and recoil displacement ($D(\eta)$) are all handled analytically, keeping the state inside the Gaussian manifold
+- **Analytic jump operators** — spin decay ($\sigma_-$), cavity loss ($a$), and recoil displacement ($D(\eta)$) all handled analytically, keeping the state inside the Gaussian manifold
+- **Dirac-Frenkel / McLachlan branching** — Dirac-Frenkel (symplectic solve) used for closed dynamics (energy-conserving); McLachlan (pseudoinverse) used when dissipation is present
 - **RK4 + adaptive stepping** — standard RK4 integrator with optional adaptive step size based on condition number of the overlap matrix
 - **Pseudoinverse regularisation** — eigendecomposition-based pseudoinverse of the overlap matrix with tunable threshold, handling near-linear-dependence of Gaussians
 
@@ -51,38 +57,55 @@ All matrix elements reduce to products of single-mode Gaussian expectation value
 
 ## Results
 
-### Kerr oscillator benchmark
+### Benchmark suite
 
-$H = \omega a^\dagger a + \mu (a^\dagger)^2 a^2$, initial coherent + squeezed state, $\mu = 0.1\omega$.
-
-| TDVP (4 Gaussians) | QuTiP (exact) |
+| Harmonic Oscillator | Single-mode Kerr |
 |---|---|
-| ![TDVP](results/kerr/0.1mu.png) | ![QuTiP](results/kerr/0.1mu-qutip.png) |
+| ![HO](results/benchmarks/1-qho.png) | ![Kerr](results/benchmarks/2-kerr.png) |
 
-Phase-space and momentum distributions match to high accuracy with only 4 Gaussian components.
+| Cross-Kerr (mode 1) | Cross-Kerr (mode 2) |
+|---|---|
+| ![CK1](results/benchmarks/3-crosskerr.png) | ![CK2](results/benchmarks/3.1-crosskerr.png) |
+
+### 2D sideband cooling
+
+TDVP trajectories vs QuTiP (`mcsolve`, Fock cutoff 30) for a two-mode atom-light system with Lamb-Dicke coupling.
+
+| Phonon number $\langle n \rangle$ vs time | Internal state populations vs time |
+|---|---|
+| ![n_vs_t](results/cooling_2d/n_vs_t.png) | ![pops_vs_t](results/cooling_2d/pops_vs_t.png) |
 
 ## Usage
 
 ```python
-from tdvp.solver import GaussianComponent, HierarchicalState, TDVPSolver, pack_state, rk4_step
+from tdvp.solver import GaussianComponent, HierarchicalState, Nu, TDVPSolver, pack_state, rk4_step
 
 # define initial state
 psi = HierarchicalState()
 psi.add_gaussian("g", GaussianComponent(kappa=0.0, theta=0.0,
-                                         x=[1.0], y=[0.0],
-                                         r=[0.0], phi=[0.0]))
+                                        x=[1.0], y=[0.0],
+                                        r=[0.0], phi=[0.0]))
 
 # define Hamiltonian: (coeff, sigma_bra, sigma_ket, ops_dict)
 # ops_dict: {mode_k: (m, n)} for a^m (a†)^n on mode k
 H_terms = [(omega, "g", "g", {0: (1, 1)})]   # omega * a†a
-K_terms = []                                    # Lindblad: L†L terms
+K_terms = []                                   # Lindblad: (1/2) L†L terms
 
-solver = TDVPSolver(psi, H_terms, K_terms)
-z = pack_state(psi, solver.nus)
+nus = [Nu(s, p, k, kind)
+       for s in ["g"] for p in range(N_gauss)
+       for k in range(1) for kind in ["x", "y", "r", "phi"]
+       if not (kind in ["kappa", "theta"] and k > 0)]
+# prepend kappa/theta per Gaussian
+nus = [Nu("g", p, 0, t) for p in range(N_gauss) for t in ["kappa", "theta"]] + nus
+
+solver = TDVPSolver(psi, nus, H_terms, K_terms=K_terms)
+z = pack_state(psi, nus)
 
 for _ in range(n_steps):
     z = rk4_step(z, dt, solver)
 ```
+
+See `examples/benchmarks/tdvp_benchmarks.ipynb` for complete worked examples (HO, Kerr, cross-Kerr, non-Hermitian decay).
 
 ## Requirements
 
@@ -91,10 +114,10 @@ numpy
 scipy
 joblib
 matplotlib
+numba
 qutip   # for benchmarking only
 ```
 
 ## Planned
 
-- 2D laser cooling: TDVP vs QuTiP benchmark demonstrating multimode capability
-- 1D optical lattice: heating dynamics, comparison with exact grid-based MCWF ([soft-mcwf](https://github.com/krishnasogathur/soft-mcwf))
+- Lattice heating benchmark vs exact grid-based MCWF ([soft-mcwf](https://github.com/krishnasogathur/soft-mcwf))
