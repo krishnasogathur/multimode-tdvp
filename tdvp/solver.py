@@ -1,14 +1,16 @@
 """
 Numpy-backed TDVP solver for hierarchical Gaussian states.
-Supports multi-sector (spin) states with cross-sector H_terms.
+Supports multi-sector (spin, treated as orthogonal sectors) states with cross-sector H_terms.
 
 H_terms format: (coeff, sigma_bra, sigma_ket, ops_dict)
+ops_dict acts on bosonic modes; sigma_bra/ket selects the element <sigma_bra|H|sigma_ket>.
 Old 2-tuple (coeff, ops_dict) is auto-converted to ("g","g") upon construction.
 
 Physics of cross-sector extension:
   - Overlap matrix g_mat / Omega remain block-diagonal in sigma
     because spin sectors are orthogonal: <g_sigma | g_sigma'> = delta_{sigma,sigma'}
-  - Force vector F[nu_a] receives contributions from H terms where sigma_ket = sigma(nu_a)
+  - Force vector F[nu_a] (derivative of <E> wrt variational param nu_a) receives
+    contributions from H terms where sigma_ket = sigma(nu_a),
     using a cross-sector S tensor S[i_bra, j_ket, k, m, n]
 """
 
@@ -21,6 +23,12 @@ from .gaussians import single_mode_gaussians_expec
 # Frontend — used for init and observables only; class overhead is negligible compared to overlap and force computations.
 # ---------------------------------------------------------------------------
 
+'''
+Sum-of-Gaussian state representation. For every spin sector we associate a
+list of GaussianComponent objects whose linear combination forms the bosonic
+state for that sector. Multiple components are stored in HierarchicalState
+with the spin label as dict key.
+'''
 class GaussianComponent:
     def __init__(self, kappa, theta, x, y, r, phi):
         self.kappa = np.float64(kappa)
@@ -37,6 +45,7 @@ class GaussianComponent:
     def beta(self):  return self.r * np.exp(1j * self.phi)
 
 
+''' Build the initial state using this class: pass a list of GaussianComponent objects for each sigma. '''
 class HierarchicalState:
     def __init__(self):
         self.state = {}   # sigma -> list[GaussianComponent]
@@ -53,6 +62,7 @@ class HierarchicalState:
             self.state[sigma].append(gaussian)
 
 
+''' Nu: created at init; maps each state vector index to a specific variational parameter (sigma, gaussian p, mode k, kind). '''
 @dataclass(frozen=True)
 class Nu:
     sigma: object
@@ -62,14 +72,17 @@ class Nu:
 
 
 # ---------------------------------------------------------------------------
-# H_terms normaliser - call once at startup or in TDVPSolver.__init__
+# H_terms normaliser - called at the start to ensure consistency
 # ---------------------------------------------------------------------------
 
 def normalise_H_terms(H_terms):
     """
     Accept (coeff, ops), (coeff, sb, sk, ops), or (coeff, sb, sk, ops, eta).
     Returns list of (coeff, sigma_bra, sigma_ket, ops_dict, eta).
-    eta is the Lamb-Dicke displacement parameter: the bosonic factor is D(i*eta) = exp(i*eta*(a+a†)).
+
+    Most general term: H = coeff * D(i*eta) * O(ops_dict) |sigma_bra><sigma_ket|
+    where O(ops_dict) is the bosonic operator (a^m (a†)^n per mode) and
+    D(i*eta) is the displacement operator with Lamb-Dicke parameter eta.
     eta=0 recovers the standard case.
     """
     out = []
@@ -91,6 +104,7 @@ def normalise_H_terms(H_terms):
 # pack — called once at the start to get z0 (initial state vector)
 # ---------------------------------------------------------------------------
 
+''' pack_state: converts the initial HierarchicalState to a flat state vector z used throughout the solver. '''
 def pack_state(psi, nus):
     z = np.zeros(len(nus), dtype=float)
     for i, nu in enumerate(nus):
@@ -108,18 +122,24 @@ def pack_state(psi, nus):
 # Layout - built once from psi + nus at solver init
 # ---------------------------------------------------------------------------
 
+'''
+Layout: build per-sigma layout dicts that map state vector z to the
+HierarchicalState psi. Constructed once at init from psi + nus.
+'''
 def _build_layout(psi, nus):
     kinds  = np.array([nu.kind  for nu in nus])
     sigmas = np.array([nu.sigma for nu in nus])
-    p_idx  = np.array([nu.p     for nu in nus], dtype=int)
-    k_idx  = np.array([nu.k     for nu in nus], dtype=int)
+    p_idx  = np.array([nu.p     for nu in nus], dtype=int)   # Gaussian index for each nu
+    k_idx  = np.array([nu.k     for nu in nus], dtype=int)   # mode index for each nu
     N_nu   = len(nus)
 
+    # boolean mask for each parameter kind — selects entries in z belonging to that kind
     masks = {kind: (kinds == kind)
              for kind in ["kappa", "theta", "x", "y", "r", "phi"]}
 
     unique_sigmas = list(dict.fromkeys(nu.sigma for nu in nus))
 
+    # sigma_nu_idx: indices into z that belong to each spin sector
     sigma_nu_idx = {
         sigma: np.where(sigmas == sigma)[0]
         for sigma in unique_sigmas
@@ -127,7 +147,7 @@ def _build_layout(psi, nus):
 
     sigma_layout = {}
     for sigma in unique_sigmas:
-        gaussians = psi.state[sigma]
+        gaussians = psi.state[sigma]   # list of GaussianComponent objects for this sector
         N_g     = len(gaussians)
         N_modes = len(gaussians[0].x)
 
@@ -138,6 +158,7 @@ def _build_layout(psi, nus):
         r_z     = np.full((N_g, N_modes), -1, dtype=int)
         phi_z   = np.full((N_g, N_modes), -1, dtype=int)
 
+        # fill z-index arrays for variational parameters of this sigma
         for i, nu in enumerate(nus):
             if nu.sigma != sigma:
                 continue
@@ -157,6 +178,7 @@ def _build_layout(psi, nus):
             "y_z":          y_z,
             "r_z":          r_z,
             "phi_z":        phi_z,
+            # _frozen: initial values for parameters not being varied (index = -1)
             "kappa_frozen": np.array([g.kappa      for g in gaussians]),
             "theta_frozen": np.array([g.theta      for g in gaussians]),
             "x_frozen":     np.array([g.x.copy()   for g in gaussians]),
@@ -166,7 +188,7 @@ def _build_layout(psi, nus):
         }
 
     return {
-        "N_nu":          N_nu,
+        "N_nu":          N_nu,           # length of state vector z
         "p_idx":         p_idx,
         "k_idx":         k_idx,
         "masks":         masks,
@@ -181,11 +203,14 @@ def _arrays_from_z(z, layout, sigma, global_kappa_max=None):
 
     global_kappa_max: if provided (multi-sector case), use it as the shift
     reference so amplitudes across sectors are consistently scaled.
-    Leave as None for single-sector runs (per-sector shift, backward compat).
+    Leave as None for single-sector runs.
     """
-    sl      = layout["sigma_layout"][sigma]
+    sl      = layout["sigma_layout"][sigma]   # layout dict for this sigma
     N_g     = sl["N_g"];  N_modes = sl["N_modes"]
 
+    # scalar (kappa, theta) and modal (x,y,r,phi) helpers share the same logic:
+    # start from the frozen array, overwrite only the variational entries from z.
+    # -1 is the sentinel for frozen (non-variational) parameters.
     def _get_scalar(key):
         idx  = sl[key + "_z"]
         out  = sl[key + "_frozen"].copy()
@@ -204,6 +229,7 @@ def _arrays_from_z(z, layout, sigma, global_kappa_max=None):
 
     kappa = _get_scalar("kappa")
     if global_kappa_max is not None:
+        # coupled sectors: use one consistent shift so amplitudes stay comparable across sectors
         kappa_shift = kappa - global_kappa_max
     else:
         kappa_shift = kappa - kappa.max()
@@ -221,17 +247,19 @@ def _arrays_from_z(z, layout, sigma, global_kappa_max=None):
         "x":       x,  "y": y,  "r": r,  "phi": phi,
         "alpha":   x + 1j * y,
         "beta":    r * np.exp(1j * phi),
-        "c_conj":  np.exp(kappa_shift - 1j * theta),
+        "c_conj":  np.exp(kappa_shift - 1j * theta),   # amplitude factor for overlap computations
         "c":       np.exp(kappa_shift + 1j * theta),
     }
 
 
 # ---------------------------------------------------------------------------
-# S tensor — same sector
+# S tensor — caches <g_i | a†^m a^n | g_j> for all Gaussian pairs and modes,
+# for (m,n) up to what H_terms needs. Same overlaps appear in both <H> and
+# <vi|vj>, so building once prevents redundant recomputation.
 # ---------------------------------------------------------------------------
 
-def _infer_mn_max(H_terms): 
-    ''' Originally used this which bruteforce computed all overlaps just to be careful. 
+def _infer_mn_max(H_terms):
+    ''' Originally used this which bruteforce computed all overlaps just to be careful.
     later realised we can be smart about what overlaps we compute.'''
     m_max = n_max = 0
     for term in H_terms:
@@ -263,7 +291,8 @@ def _infer_mn_pairs(H_terms):
 
 
 def _build_S_tensor(arr, m_max, n_max, mn_pairs=None):
-    """Shape: (N_g, N_g, N_modes, m_max, n_max).
+    """Shape: (N_g, N_g, N_modes, m_max, n_max). Vectorised over (i,j,k).
+    arr is output of _arrays_from_z for a specific sector.
     If mn_pairs given, only fills those slices (sparse fill - faster)."""
     N_g     = arr["N_g"]
     N_modes = arr["N_modes"]
@@ -291,6 +320,7 @@ def _build_S_tensor(arr, m_max, n_max, mn_pairs=None):
 def _build_cross_S_tensor(arr_bra, arr_ket, m_max, n_max, mn_pairs=None):
     """
     Shape: (N_g_bra, N_g_ket, N_modes, m_max, n_max).
+    Computes <g_bra_i | a†^m a^n | g_ket_j> for all i,j,k,m,n.
     If mn_pairs given, only fills those slices (sparse fill — faster).
     """
     N_g_bra = arr_bra["N_g"]
@@ -301,9 +331,9 @@ def _build_cross_S_tensor(arr_bra, arr_ket, m_max, n_max, mn_pairs=None):
     alpha_ket = arr_ket["alpha"]
     beta_ket  = arr_ket["beta"]
 
-    a_i = alpha_bra[:, None, :]
+    a_i = alpha_bra[:, None, :]   # (N_g_bra, 1, N_modes)
     b_i = beta_bra[:, None, :]
-    a_j = alpha_ket[None, :, :]
+    a_j = alpha_ket[None, :, :]   # (1, N_g_ket, N_modes)
     b_j = beta_ket[None, :, :]
 
     _vf = np.vectorize(single_mode_gaussians_expec, otypes=[complex])
@@ -451,7 +481,11 @@ def _build_overlap_matrix(layout, arrs, S_tensors, f_all, g_all, h_all):
 
 
 # ---------------------------------------------------------------------------
-# Force vector — cross-sector H_terms supported
+# Force vector (RHS of McLachlan TDVP)
+# Each term contributes: <g_bra | O | v_g_ket> where the tangent vector
+# |v_g_ket> = (f + g a† + h (a†)^2) |g_ket>, and O is given by ops_dict.
+# Uses pre-built S tensor slices to evaluate overlaps without recomputation.
+# Cross-sector H_terms supported.
 # ---------------------------------------------------------------------------
 
 def _make_op_slices(S_t, ops, N_modes):
@@ -463,11 +497,11 @@ def _make_op_slices(S_t, ops, N_modes):
     sg  = np.zeros_like(sf)
     sh  = np.zeros_like(sf)
     for k in range(N_modes):
-        m, n   = ops.get(k, (0, 0))
-        sf[k]  = S_t[:, :, k, m, n]
-        sg[k]  = S_t[:, :, k, m+1, n]
-        if n > 0: sg[k] += n * S_t[:, :, k, m, n-1]
-        sh[k]  = S_t[:, :, k, m+2, n]
+        m, n   = ops.get(k, (0, 0))   # identity on mode k if not in ops
+        sf[k]  = S_t[:, :, k, m, n]               # f * <g | O | g>
+        sg[k]  = S_t[:, :, k, m+1, n]             # g * <g | O a† | g>
+        if n > 0: sg[k] += n * S_t[:, :, k, m, n-1]   # normal-ordering correction
+        sh[k]  = S_t[:, :, k, m+2, n]             # h * <g | O (a†)^2 | g>
         if n > 0: sh[k] += 2*n * S_t[:, :, k, m+1, n-1]
         if n > 1: sh[k] += n*(n-1) * S_t[:, :, k, m, n-2]
     return sf, sg, sh
@@ -480,7 +514,7 @@ def _build_force_vector(layout, arrs, S_tensors, cross_S_tensors,
     H_terms: list of (coeff, sigma_bra, sigma_ket, ops_dict, eta).
 
     Physics:
-        F[nu_a] = <psi| H |d_{nu_a} psi>
+        F[nu_a] = <psi| H |d_{nu_a} psi> where |v_{nu_a}> = d_{nu_a}|psi> is the tangent vector.
         For term (coeff, sigma_bra, sigma_ket, ops, eta):
           - Contributes to nus in sigma_ket  (derivative acts on ket)
           - Uses c_conj from sigma_bra, c from sigma_ket
@@ -572,15 +606,15 @@ def single_mode_expectation(g1, g2, k, m, n):
 def _tag_gaussians(psi):
     for sigma, gaussians in psi.state.items():
         for idx, g in enumerate(gaussians):
-            g._idx   = idx
-            g._sigma = sigma
+            g._idx   = idx    # position in its spin sector, for indexing into S tensor
+            g._sigma = sigma  # sector label, for selecting the right S tensor in single_mode_expectation
 
 
 def _sync_psi_from_z(psi, layout, z):
     for sigma in layout["unique_sigmas"]:
         sl = layout["sigma_layout"][sigma]
         for p, g in enumerate(psi.state[sigma]):
-            if sl["kappa_z"][p] >= 0: g.kappa = float(z[sl["kappa_z"][p]])
+            if sl["kappa_z"][p] >= 0: g.kappa = float(z[sl["kappa_z"][p]])   # >= 0: variational; -1: frozen
             if sl["theta_z"][p] >= 0: g.theta = float(z[sl["theta_z"][p]])
             for k in range(sl["N_modes"]):
                 if sl["x_z"][p, k]   >= 0: g.x[k]   = float(z[sl["x_z"][p, k]])
@@ -694,7 +728,7 @@ class TDVPSolver:
                         "c_bra_disp": c_bra_disp,
                     }
 
-        _sync_psi_from_z(self.psi, self.layout, z)
+        _sync_psi_from_z(self.psi, self.layout, z)   # inexpensive; keeps psi in sync for observable access
 
         f_all = np.zeros(self.N, dtype=complex)
         g_all = np.zeros(self.N, dtype=complex)
@@ -722,6 +756,7 @@ class TDVPSolver:
             rhs = -2.0 * np.imag(F_H)
 
         # non-Hermitian part: K convention is K = L†L, rhs -= Re[F_K]
+        # sign is minus (not plus); the original paper had a sign typo here
         if self.K_terms:
             F_K  = _build_force_vector(self.layout, arrs, S_tensors, cross_S_tensors,
                                        self.K_terms, f_all, g_all, h_all,
@@ -757,7 +792,7 @@ class TDVPSolver:
         O_inv  = (Vo.T * so_inv) @ Uo.T
         return U_r @ O_inv @ (U_r.T @ rhs)
 
-    def sync(self, z):
+    def sync(self, z):   # keeps psi in sync after each step; needed for observable access
         global _current_S_tensors
         global_km = self._global_kappa_max(z)
         arrs = {sigma: _arrays_from_z(z, self.layout, sigma, global_km)
@@ -789,6 +824,7 @@ def apply_jump_cavity_loss(psi, sigma, kappa_rate):
         g.theta = new_theta
 
 
+# used for spin decay / internal state jumps
 def apply_jump_spin_decay(psi, sigma_e, sigma_g):
     """
     Jump c = sqrt(gamma) * sigma_-  (spin decay e->g).
@@ -804,6 +840,7 @@ def apply_jump_spin_decay(psi, sigma_e, sigma_g):
         g.kappa = -1e6    # suppress e-sector
 
 
+# used for laser recoil / displacement jumps
 def apply_jump_displacement(psi, sigma, eta, mode_k=0):
     """
     Jump involving displacement D(eta) on mode k (e.g. laser recoil).
