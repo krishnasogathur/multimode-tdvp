@@ -1,6 +1,6 @@
 # multimode-tdvp
 
-A variational Gaussian solver for multimode open quantum systems, based on the Time-Dependent Variational Principle (TDVP).
+A sum-of-Gaussians (SoG) TDVP solver for multimode open quantum systems. The ansatz is a superposition of Gaussian states — non-Gaussian overall — evolved under the McLachlan variational principle.
 
 ## Motivation
 
