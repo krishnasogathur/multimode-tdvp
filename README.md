@@ -10,7 +10,7 @@ This solver instead represents the quantum state as a superposition of displaced
 
 $$|\psi\rangle = \sum_{p,\sigma} e^{\kappa_p + i\theta_p} |\sigma\rangle \otimes \bigotimes_k |\alpha_k^{(p)}, \beta_k^{(p)}\rangle$$
 
-where $\sigma$ labels internal (spin) sectors, $\alpha_k$ is the coherent displacement, and $\beta_k$ is the squeezing parameter for mode $k$. The variational parameters $\{\kappa_p, \theta_p, \alpha_k^{(p)}, \beta_k^{(p)}\}$ are evolved via the McLachlan variational principle, reducing the exponential Hilbert space problem to one that scales as $O(N_\text{Gauss} \times d)$.
+where $\sigma$ labels internal (spin) sectors, $\alpha_k$ is the coherent displacement, and $\beta_k$ is the squeezing parameter for mode $k$. The variational parameters $\{\kappa_p, \theta_p, \alpha_k^{(p)}, \beta_k^{(p)}\}$ are evolved via the McLachlan variational principle, reducing the exponential Hilbert space problem to one that scales as $O(N_\text{Gauss} \times d)$. This is an approximation: the true quantum dynamics are projected onto the SoG variational manifold, and accuracy improves with $N_\text{Gauss}$.
 
 Open system dynamics (Lindblad dissipation) is handled via quantum trajectories (MCWF): between quantum jumps, the state evolves under a non-Hermitian effective Hamiltonian via TDVP; at a jump event, the jump operator is applied analytically within the Gaussian manifold.
 
