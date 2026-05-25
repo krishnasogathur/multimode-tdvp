@@ -1,6 +1,6 @@
 # multimode-tdvp
 
-A sum-of-Gaussians (SoG) TDVP solver for multimode open quantum systems. The ansatz is a superposition of Gaussian states — non-Gaussian overall — evolved under the McLachlan variational principle.
+A sum-of-Gaussians (SoG) TDVP solver for multimode open quantum systems. The ansatz is a superposition of Gaussian states - non-Gaussian overall - evolved under the McLachlan variational principle.
 
 ## Motivation
 
@@ -18,32 +18,32 @@ Open system dynamics (Lindblad dissipation) is handled via quantum trajectories 
 
 ```
 tdvp/
-  solver.py       — core TDVP engine (TDVPSolver, rk4_step, jump helpers)
-  gaussians.py    — analytic Gaussian expectation values <α,β|a^m (a†)^n|α',β'>
+  solver.py       - core TDVP engine (TDVPSolver, rk4_step, jump helpers)
+  gaussians.py    - analytic Gaussian expectation values <α,β|a^m (a†)^n|α',β'>
 
 examples/
   benchmarks/
-    tdvp_benchmarks.ipynb   — HO, Kerr, cross-Kerr, non-Hermitian norm decay
+    tdvp_benchmarks.ipynb   - HO, Kerr, cross-Kerr, non-Hermitian norm decay
   cooling_2d/
-    2dcoolingtest.py        — 2D sideband cooling trajectories (TDVP)
-    helper.py               — Gaussian expectation helpers (legacy)
+    2dcoolingtest.py        - 2D sideband cooling trajectories (TDVP)
+    helper.py               - Gaussian expectation helpers (legacy)
     analysis/
-      traj_diagnostics.py   — filter bad trajectories (norm blowup)
-      cooling_2d_eval.py    — load trajectories, run QuTiP, produce comparison plots
+      traj_diagnostics.py   - filter bad trajectories (norm blowup)
+      cooling_2d_eval.py    - load trajectories, run QuTiP, produce comparison plots
 
 results/
-  benchmarks/     — HO, Kerr, cross-Kerr benchmark plots vs QuTiP/exact
-  cooling_2d/     — 2D cooling: phonon number and population vs time
+  benchmarks/     - HO, Kerr, cross-Kerr benchmark plots vs QuTiP/exact
+  cooling_2d/     - 2D cooling: phonon number and population vs time
 ```
 
 ## Key features
 
-- **Multi-sector spin states** — Hamiltonian terms couple arbitrary spin sectors `(σ_bra, σ_ket)` with bosonic operators; the overlap matrix remains block-diagonal by orthogonality of spin sectors
-- **Lamb-Dicke coupling** — laser-atom interaction terms include displacement $D(i\eta)$ applied analytically per jump
-- **Analytic jump operators** — spin decay ($\sigma_-$), cavity loss ($a$), and recoil displacement ($D(\eta)$) all handled analytically, keeping the state inside the Gaussian manifold
-- **Dirac-Frenkel / McLachlan branching** — Dirac-Frenkel (symplectic solve) used for closed dynamics (energy-conserving); McLachlan (pseudoinverse) used when dissipation is present
-- **RK4 + adaptive stepping** — standard RK4 integrator with optional adaptive step size based on condition number of the overlap matrix
-- **Pseudoinverse regularisation** — eigendecomposition-based pseudoinverse of the overlap matrix with tunable threshold, handling near-linear-dependence of Gaussians
+- **Multi-sector spin states** - Hamiltonian terms couple arbitrary spin sectors `(σ_bra, σ_ket)` with bosonic operators; the overlap matrix remains block-diagonal by orthogonality of spin sectors
+- **Lamb-Dicke coupling** - laser-atom interaction terms include displacement $D(i\eta)$ applied analytically per jump
+- **Analytic jump operators** - spin decay ($\sigma_-$), cavity loss ($a$), and recoil displacement ($D(\eta)$) all handled analytically, keeping the state inside the Gaussian manifold
+- **Dirac-Frenkel / McLachlan branching** - Dirac-Frenkel (symplectic solve) used for closed dynamics (energy-conserving); McLachlan (pseudoinverse) used when dissipation is present
+- **RK4 + adaptive stepping** - standard RK4 integrator with optional adaptive step size based on condition number of the overlap matrix
+- **Pseudoinverse regularisation** - eigendecomposition-based pseudoinverse of the overlap matrix with tunable threshold, handling near-linear-dependence of Gaussians
 
 ## Method summary
 
