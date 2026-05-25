@@ -3,7 +3,7 @@ Numpy-backed TDVP solver for hierarchical Gaussian states.
 Supports multi-sector (spin) states with cross-sector H_terms.
 
 H_terms format: (coeff, sigma_bra, sigma_ket, ops_dict)
-Old 2-tuple (coeff, ops_dict) is auto-converted to ("g","g") on construction.
+Old 2-tuple (coeff, ops_dict) is auto-converted to ("g","g") upon construction.
 
 Physics of cross-sector extension:
   - Overlap matrix g_mat / Omega remain block-diagonal in sigma
@@ -18,7 +18,7 @@ from .gaussians import single_mode_gaussians_expec
 
 
 # ---------------------------------------------------------------------------
-# Frontend — used for init and observables only
+# Frontend — used for init and observables only; class overhead is negligible compared to overlap and force computations.
 # ---------------------------------------------------------------------------
 
 class GaussianComponent:
@@ -62,7 +62,7 @@ class Nu:
 
 
 # ---------------------------------------------------------------------------
-# H_terms normaliser — call once at startup or in TDVPSolver.__init__
+# H_terms normaliser - call once at startup or in TDVPSolver.__init__
 # ---------------------------------------------------------------------------
 
 def normalise_H_terms(H_terms):
@@ -88,7 +88,7 @@ def normalise_H_terms(H_terms):
 
 
 # ---------------------------------------------------------------------------
-# pack — called once at the start to get z0
+# pack — called once at the start to get z0 (initial state vector)
 # ---------------------------------------------------------------------------
 
 def pack_state(psi, nus):
@@ -105,7 +105,7 @@ def pack_state(psi, nus):
 
 
 # ---------------------------------------------------------------------------
-# Layout — built once from psi + nus at solver init
+# Layout - built once from psi + nus at solver init
 # ---------------------------------------------------------------------------
 
 def _build_layout(psi, nus):
@@ -177,7 +177,7 @@ def _build_layout(psi, nus):
 
 
 def _arrays_from_z(z, layout, sigma, global_kappa_max=None):
-    """Slice z into per-sigma parameter arrays with kappa_shift for stability.
+    """Slices z into per-sigma parameter arrays with kappa_shift for stability.
 
     global_kappa_max: if provided (multi-sector case), use it as the shift
     reference so amplitudes across sectors are consistently scaled.
@@ -230,7 +230,9 @@ def _arrays_from_z(z, layout, sigma, global_kappa_max=None):
 # S tensor — same sector
 # ---------------------------------------------------------------------------
 
-def _infer_mn_max(H_terms):
+def _infer_mn_max(H_terms): 
+    ''' Originally used this which bruteforce computed all overlaps just to be careful. 
+    later realised we can be smart about what overlaps we compute.'''
     m_max = n_max = 0
     for term in H_terms:
         ops = term[3]
@@ -240,7 +242,7 @@ def _infer_mn_max(H_terms):
 
 def _infer_mn_pairs(H_terms):
     """Minimal set of (m,n) pairs needed by overlap matrix and force vector.
-    Keeps dense tensor shape but only fills needed slices — 1.6-2.2x speedup."""
+    Keeps dense tensor shape but only fills needed slices - 1.6-2.2x speedup."""
     pairs = set()
     # _build_overlap_matrix always needs full 0..2 x 0..2 (W_FULL tensor)
     for m in range(3):
@@ -262,7 +264,7 @@ def _infer_mn_pairs(H_terms):
 
 def _build_S_tensor(arr, m_max, n_max, mn_pairs=None):
     """Shape: (N_g, N_g, N_modes, m_max, n_max).
-    If mn_pairs given, only fills those slices (sparse fill — faster)."""
+    If mn_pairs given, only fills those slices (sparse fill - faster)."""
     N_g     = arr["N_g"]
     N_modes = arr["N_modes"]
     alpha   = arr["alpha"]
