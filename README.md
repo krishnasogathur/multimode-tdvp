@@ -121,3 +121,8 @@ qutip   # for benchmarking only
 ## Planned
 
 - Lattice heating benchmark vs exact grid-based MCWF ([soft-mcwf](https://github.com/krishnasogathur/soft-mcwf))
+
+## References
+
+- L. Hackl, T. Guaita, T. Shi, J. Haegeman, E. Demler, J. I. Cirac, "Geometry of variational methods: dynamics of closed quantum systems," [SciPost Phys. **9**, 048 (2020)](https://scipost.org/SciPostPhys.9.4.048)
+- L. J. Bond, B. Gerritsen, J. Minář, J. T. Young, J. Schachenmayer, A. Safavi-Naini, "Open quantum dynamics with variational non-Gaussian states and the truncated Wigner approximation," [J. Chem. Phys. **161**, 184113 (2024)](https://doi.org/10.1063/5.0226268)
