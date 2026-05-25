@@ -69,7 +69,7 @@ All matrix elements reduce to products of single-mode Gaussian expectation value
 
 ### 2D sideband cooling
 
-TDVP trajectories vs QuTiP (`mcsolve`, Fock cutoff 30) for a two-mode atom-light system with Lamb-Dicke coupling.
+TDVP trajectories vs QuTiP (`mcsolve`, Fock cutoff 35) for a two-mode atom-light system with Lamb-Dicke coupling.
 
 | Phonon number $\langle n \rangle$ vs time | Internal state populations vs time |
 |---|---|
