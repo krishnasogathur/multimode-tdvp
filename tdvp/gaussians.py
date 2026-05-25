@@ -160,7 +160,18 @@ def gaussian_state_overlap(z1, beta1, z2, beta2):
 @njit(cache=True,)
 def single_mode_gaussians_expec(a1, b1, a2, b2, m, n):
 
-    ''' I use simplified formulae for easy cases'''
+    ''' 
+    in most general terms, this forms the engine for all subsequent computations.
+     
+    inputs: gaussian states D(a1) S(b1) |0> and D(a2) S(b2) |0>, and m, n for the operator a^m (adag)^n.
+    outputs: the expectation value <D(a1) S(b1) | a^m (adag)^n | D(a2) S(b2)>.
+    
+    My key contribution is working out the analytical formula for this overlap, using idea in 
+    Bond et. al. paper. This derivation will be presented in the thesis report.
+    '''
+    
+
+    # I use simplified formulae for easy cases
     if m == 0 and n == 0:
         return gaussian_state_overlap(a1, b1, a2, b2)
     
@@ -231,9 +242,9 @@ def single_mode_gaussians_expec(a1, b1, a2, b2, m, n):
     c_eff = -c_inv_xy
     
     ''' 
-    here there's the standard approach which assumes F computation, and requires const_new as below
+    commented out is the standard approach which assumes F computation, and requires const_new as below
     
-    alternatively, overflow can be prevented by separating F computation from rest which is what I've adopted. but this requires a separate prefactor be computed.
+    alternatively, overflow can be prevented by separating F computation from rest which is what I've adopted.
     '''
     # const_new = (
     #     f
@@ -247,7 +258,11 @@ def single_mode_gaussians_expec(a1, b1, a2, b2, m, n):
     gamma_new = x0
     gamma_star_new = y0
     
-    ''' originally did below, but computing F inside this leads to overflow issues. easier to skip prefactor computation bc it is encoded anyway in f'''
+    '''
+    originally did below, but computing F inside this leads to overflow issues. easier to skip prefactor
+    computation bc it is encoded anyway in f
+    '''
+    
     # prefactor = x_scale**m * y_scale**n * np.sqrt(2.0*sigma_21_inv) * np.exp(const_new)
     # if debug:
         # derivative = gaussian_derivative_closed_form_without_F(gamma_new, gamma_star_new, c_eff, m, n) * np.exp(f - const_new)
@@ -257,7 +272,7 @@ def single_mode_gaussians_expec(a1, b1, a2, b2, m, n):
     # new prefactor and derivative; directly evaluating F(x0, y0) contribution from F(Gamma, Gamma*). hopefully this helps prevent overflow issues
     prefactor = x_scale**m * y_scale**n * np.sqrt(2.0*sigma_21_inv) 
 
-    ''' helpful exception for debugging'''
+    ''' helpful exception for debugging because f can blow up if squeezings are large'''
     if np.abs(f) > 1e8:
         raise Exception("f blowing up")
     
