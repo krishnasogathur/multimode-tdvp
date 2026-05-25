@@ -26,7 +26,6 @@ examples/
     tdvp_benchmarks.ipynb   - HO, Kerr, cross-Kerr, non-Hermitian norm decay
   cooling_2d/
     2dcoolingtest.py        - 2D sideband cooling trajectories (TDVP)
-    helper.py               - Gaussian expectation helpers (legacy)
     analysis/
       traj_diagnostics.py   - filter bad trajectories (norm blowup)
       cooling_2d_eval.py    - load trajectories, run QuTiP, produce comparison plots
