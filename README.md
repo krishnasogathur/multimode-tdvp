@@ -46,6 +46,8 @@ results/
 
 ## Method summary
 
+For a visual overview of the full derivation-to-code pipeline, see [flowchart.pdf](flowchart.pdf).
+
 The TDVP equations of motion follow from minimising $\| (i\partial_t - H_\text{eff})|\psi\rangle \|$ over the tangent space of the variational manifold (McLachlan principle). This gives:
 
 $$G \dot{z} = F$$
